@@ -142,7 +142,6 @@ const App: React.FC = () => {
       timestamp: Date.now()
     };
     
-    // Memory safety: Slice to MAX_HISTORY to drop the oldest Base64 images
     return [newHistoryItem, ...prev.history].slice(0, MAX_HISTORY);
   };
 
@@ -193,7 +192,6 @@ const App: React.FC = () => {
     }
   }, [gameState.nextPuzzles.length, gameState.status, gameState.puzzle]);
 
-  // Constant monitoring to refill the queue
   useEffect(() => {
     if (gameState.status !== GameStatus.IDLE && gameState.nextPuzzles.length < MAX_PREFETCH) {
       const timer = setTimeout(prefetchNextRound, 1000);
@@ -325,7 +323,6 @@ const App: React.FC = () => {
         />
       </div>
 
-      {/* Header */}
       <header className="w-full text-center mb-8">
         <h1 className="text-4xl md:text-5xl font-outfit font-extrabold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">
           INSIGHT
@@ -333,7 +330,6 @@ const App: React.FC = () => {
         <p className="text-slate-400 mt-2 font-medium">Because the answer is right there in the image!</p>
       </header>
 
-      {/* Main Game Area */}
       <main className="w-full flex-grow space-y-8">
         {gameState.status === GameStatus.IDLE && (
           <div className="flex flex-col items-center justify-center h-96 space-y-6">
@@ -357,7 +353,7 @@ const App: React.FC = () => {
             </div>
             <div className="text-center space-y-1">
               <p className="text-indigo-300 font-semibold text-lg">{tickerMessage}</p>
-              <p className="text-slate-500 text-sm">Crafting a unique artistic challenge</p>
+              <p className="text-slate-500 text-sm">Crafting a unique intellectual challenge</p>
             </div>
           </div>
         )}
@@ -379,11 +375,15 @@ const App: React.FC = () => {
             <div className="text-center max-w-2xl mx-auto space-y-6">
               <div className="flex flex-wrap justify-center gap-3 animate-fade-in">
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800/40 border border-indigo-500/20 shadow-lg">
-                  <span className="text-[10px] font-black uppercase tracking-tighter text-indigo-400">Style</span>
-                  <span className="text-xs font-semibold text-slate-200">{gameState.puzzle.art_style}</span>
+                  <span className="text-[10px] font-black uppercase tracking-tighter text-indigo-400">Domain</span>
+                  <span className="text-xs font-semibold text-slate-200">{gameState.puzzle.category}</span>
                 </div>
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800/40 border border-cyan-500/20 shadow-lg">
-                  <span className="text-[10px] font-black uppercase tracking-tighter text-cyan-400">Theme</span>
+                  <span className="text-[10px] font-black uppercase tracking-tighter text-cyan-400">Style</span>
+                  <span className="text-xs font-semibold text-slate-200">{gameState.puzzle.art_style}</span>
+                </div>
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800/40 border border-purple-500/20 shadow-lg">
+                  <span className="text-[10px] font-black uppercase tracking-tighter text-purple-400">Theme</span>
                   <span className="text-xs font-semibold text-slate-200">{gameState.puzzle.theme}</span>
                 </div>
               </div>
@@ -527,7 +527,7 @@ const App: React.FC = () => {
       <footer className="mt-12 text-slate-600 text-[10px] md:text-xs text-center border-t border-slate-800/50 pt-6 w-full max-w-md pb-8">
         <p className="leading-relaxed">
           Instructions: Observe the image and click letters to fill the blanks. 
-          Incorrect guesses count as strikes.
+          Incorrect guesses count as strikes. Subjects range from Science to Cinema.
         </p>
       </footer>
 

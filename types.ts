@@ -7,6 +7,7 @@ export interface PuzzleData {
   word_length: number;
   art_style: string;
   theme: string;
+  category: string;
   puzzle_data_for_user: {
     redacted_caption: string;
     letter_pool: string[];
