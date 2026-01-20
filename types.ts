@@ -21,6 +21,12 @@ export enum GameStatus {
   LOST = 'LOST'
 }
 
+export interface HistoryItem {
+  puzzle: PuzzleData;
+  outcome: 'WON' | 'LOST';
+  timestamp: number;
+}
+
 export interface GameState {
   status: GameStatus;
   puzzle: PuzzleData | null;
@@ -33,4 +39,5 @@ export interface GameState {
     won: number;
     lost: number;
   };
+  history: HistoryItem[];
 }

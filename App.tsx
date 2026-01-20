@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { GameStatus, GameState, PuzzleData } from './types';
+import { GameStatus, GameState, PuzzleData, HistoryItem } from './types';
 import { generateGameRound, expandPool, SUBSEQUENT_BATCH_SIZE, POOL_LIMIT, ART_STYLES, THEMES } from './services/geminiService';
 import { soundEffects } from './services/soundService';
 import { musicService } from './services/musicalService';
@@ -9,6 +9,7 @@ import LetterKey, { LetterStatus } from './components/LetterKey';
 
 const MAX_ATTEMPTS = 4;
 const MAX_PREFETCH = 2; 
+const MAX_HISTORY = 12; // Memory limit: only keep the last 12 riddles
 
 const FUN_LOADING_MESSAGES = [
   "Polishing the AI lens...",
@@ -49,11 +50,13 @@ const App: React.FC = () => {
     score: {
       won: 0,
       lost: 0
-    }
+    },
+    history: []
   });
 
   const [tickerMessage, setTickerMessage] = useState(FUN_LOADING_MESSAGES[0]);
   const [isRetrying, setIsRetrying] = useState(false);
+  const [isPrefetching, setIsPrefetching] = useState(false);
   const [volume, setVolume] = useState(0.3);
   const isFetchingNext = useRef(false);
   const hasExpandedPool = useRef(false);
@@ -62,7 +65,6 @@ const App: React.FC = () => {
   // Music Management
   useEffect(() => {
     if (gameState.status === GameStatus.PLAYING && gameState.puzzle?.image_url) {
-      // Pass Style and Theme to influence procedural music
       musicService.start(
         gameState.puzzle.image_url, 
         gameState.puzzle.art_style, 
@@ -85,6 +87,7 @@ const App: React.FC = () => {
     if (isFetchingNext.current || gameState.nextPuzzles.length >= MAX_PREFETCH || Date.now() < prefetchCooldown.current) return;
     
     isFetchingNext.current = true;
+    setIsPrefetching(true);
     try {
       setIsRetrying(false);
       const nextPuzzle = await generateGameRound();
@@ -100,6 +103,7 @@ const App: React.FC = () => {
       setIsRetrying(true);
     } finally {
       isFetchingNext.current = false;
+      setIsPrefetching(false);
     }
   }, [gameState.nextPuzzles.length]);
 
@@ -129,11 +133,26 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, [isRetrying, gameState.nextPuzzles.length]);
 
+  const archiveCurrentPuzzle = (prev: GameState): HistoryItem[] => {
+    if (!prev.puzzle || (prev.status !== GameStatus.WON && prev.status !== GameStatus.LOST)) return prev.history;
+    
+    const newHistoryItem: HistoryItem = {
+      puzzle: prev.puzzle,
+      outcome: prev.status === GameStatus.WON ? 'WON' : 'LOST',
+      timestamp: Date.now()
+    };
+    
+    // Memory safety: Slice to MAX_HISTORY to drop the oldest Base64 images
+    return [newHistoryItem, ...prev.history].slice(0, MAX_HISTORY);
+  };
+
   const startNewGame = useCallback(async () => {
     if (gameState.nextPuzzles.length > 0) {
       setGameState(prev => {
         if (prev.nextPuzzles.length === 0) return prev;
         const [next, ...remaining] = prev.nextPuzzles;
+        const updatedHistory = archiveCurrentPuzzle(prev);
+
         return {
           ...prev,
           status: GameStatus.PLAYING,
@@ -141,7 +160,8 @@ const App: React.FC = () => {
           nextPuzzles: remaining,
           userGuess: new Array(next.word_length).fill(''),
           attempts: 0,
-          guessedLetters: new Set()
+          guessedLetters: new Set(),
+          history: updatedHistory
         };
       });
       return;
@@ -152,7 +172,8 @@ const App: React.FC = () => {
       status: GameStatus.LOADING, 
       userGuess: [], 
       attempts: 0, 
-      guessedLetters: new Set() 
+      guessedLetters: new Set(),
+      history: archiveCurrentPuzzle(prev)
     }));
 
     try {
@@ -170,7 +191,7 @@ const App: React.FC = () => {
       setGameState(prev => ({ ...prev, status: GameStatus.IDLE }));
       alert("AI signal interrupted. Please try again.");
     }
-  }, [gameState.nextPuzzles.length]);
+  }, [gameState.nextPuzzles.length, gameState.status, gameState.puzzle]);
 
   // Constant monitoring to refill the queue
   useEffect(() => {
@@ -229,7 +250,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center p-4 md:p-8 max-w-4xl mx-auto relative overflow-x-hidden text-slate-100 pb-24">
+    <div className="min-h-screen flex flex-col items-center p-4 md:p-8 max-w-4xl mx-auto relative overflow-x-hidden text-slate-100 pb-48">
       
       {/* Top Left Score Tracker */}
       <div className="fixed top-4 left-4 z-50 pointer-events-none hidden md:block">
@@ -252,19 +273,37 @@ const App: React.FC = () => {
       {(gameState.status !== GameStatus.IDLE) && (
         <div className="fixed top-4 right-4 z-50 pointer-events-none hidden md:block">
           <div className={`
-            flex items-center gap-2 px-4 py-2 rounded-full border border-slate-700/50 backdrop-blur-md shadow-2xl
+            flex flex-col gap-1.5 p-1 rounded-2xl border border-slate-700/50 backdrop-blur-md shadow-2xl overflow-hidden
             transition-all duration-1000 transform
             ${isRetrying ? 'bg-rose-900/40' : gameState.nextPuzzles.length > 0 ? 'bg-indigo-900/40' : 'bg-slate-900/40'}
           `}>
-            <div className={`w-2 h-2 rounded-full ${isRetrying ? 'bg-rose-400 animate-pulse' : gameState.nextPuzzles.length > 0 ? 'bg-indigo-400 animate-pulse' : 'bg-slate-600 animate-spin border border-t-transparent'}`}></div>
-            <span key={tickerMessage} className="text-[10px] font-bold uppercase tracking-widest text-slate-300 animate-fade-in min-w-[140px]">
-              {tickerMessage}
-            </span>
-            {gameState.nextPuzzles.length > 0 && (
-              <span className="ml-1 px-1.5 py-0.5 rounded bg-indigo-500 text-white text-[8px] font-black">
-                {gameState.nextPuzzles.length}x Ready
+            <div className="flex items-center gap-2 px-3 py-1">
+              <div className={`w-2 h-2 rounded-full ${isRetrying ? 'bg-rose-400 animate-pulse' : isPrefetching ? 'bg-indigo-400 animate-pulse' : gameState.nextPuzzles.length > 0 ? 'bg-emerald-400' : 'bg-slate-600'}`}></div>
+              <span key={tickerMessage} className="text-[10px] font-bold uppercase tracking-widest text-slate-300 animate-fade-in min-w-[140px]">
+                {tickerMessage}
               </span>
-            )}
+              {gameState.nextPuzzles.length > 0 && (
+                <span className="ml-1 px-1.5 py-0.5 rounded bg-indigo-500 text-white text-[8px] font-black">
+                  {gameState.nextPuzzles.length}x Ready
+                </span>
+              )}
+            </div>
+            
+            <div className="h-1 w-full bg-slate-800/50 flex gap-0.5 px-0.5 pb-0.5">
+              {[...Array(MAX_PREFETCH)].map((_, i) => {
+                const isLoaded = i < gameState.nextPuzzles.length;
+                const isCurrentFetch = isPrefetching && i === gameState.nextPuzzles.length;
+                return (
+                  <div 
+                    key={i} 
+                    className={`
+                      h-full flex-grow rounded-full transition-all duration-700
+                      ${isLoaded ? 'bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.6)]' : isCurrentFetch ? 'bg-indigo-500/40 animate-pulse' : 'bg-slate-700/50'}
+                    `}
+                  />
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
@@ -337,7 +376,18 @@ const App: React.FC = () => {
               </div>
             </div>
 
-            <div className="text-center max-w-2xl mx-auto space-y-4">
+            <div className="text-center max-w-2xl mx-auto space-y-6">
+              <div className="flex flex-wrap justify-center gap-3 animate-fade-in">
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800/40 border border-indigo-500/20 shadow-lg">
+                  <span className="text-[10px] font-black uppercase tracking-tighter text-indigo-400">Style</span>
+                  <span className="text-xs font-semibold text-slate-200">{gameState.puzzle.art_style}</span>
+                </div>
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800/40 border border-cyan-500/20 shadow-lg">
+                  <span className="text-[10px] font-black uppercase tracking-tighter text-cyan-400">Theme</span>
+                  <span className="text-xs font-semibold text-slate-200">{gameState.puzzle.theme}</span>
+                </div>
+              </div>
+
               <div className="p-4 rounded-xl bg-slate-800/30 border border-slate-700/50">
                 <p className="text-xl md:text-2xl font-medium leading-relaxed italic text-slate-200">
                   {gameState.status === GameStatus.WON || gameState.status === GameStatus.LOST 
@@ -423,6 +473,55 @@ const App: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* The Chronicle - History Gallery */}
+        {gameState.history.length > 0 && (
+          <div className="pt-12 animate-fade-in">
+            <div className="flex items-center gap-4 mb-6">
+              <div className="h-px flex-grow bg-slate-800"></div>
+              <div className="flex flex-col items-center gap-1">
+                <h3 className="text-xs font-black uppercase tracking-[0.3em] text-slate-500">The Chronicle</h3>
+                <span className="text-[8px] font-bold text-slate-600 uppercase tracking-widest">Last {gameState.history.length} Memories</span>
+              </div>
+              <div className="h-px flex-grow bg-slate-800"></div>
+            </div>
+            
+            <div className="flex gap-4 overflow-x-auto pb-6 px-4 -mx-4 no-scrollbar scroll-smooth">
+              {gameState.history.map((item, i) => (
+                <div 
+                  key={item.timestamp} 
+                  className={`
+                    flex-shrink-0 w-32 md:w-40 group cursor-default transition-transform hover:-translate-y-2
+                    animate-pop
+                  `}
+                  style={{ animationDelay: `${i * 100}ms` }}
+                >
+                  <div className={`
+                    relative aspect-square rounded-xl overflow-hidden border-2 mb-2
+                    ${item.outcome === 'WON' ? 'border-emerald-500/30 shadow-lg shadow-emerald-500/10' : 'border-rose-500/30 shadow-lg shadow-rose-500/10'}
+                  `}>
+                    <img src={item.puzzle.image_url} className="w-full h-full object-cover" alt="Past Riddle" />
+                    <div className={`
+                      absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center
+                      ${item.outcome === 'WON' ? 'bg-emerald-500' : 'bg-rose-500'}
+                    `}>
+                      {item.outcome === 'WON' ? (
+                        <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"/></svg>
+                      ) : (
+                        <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"/></svg>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <p className={`text-[10px] font-black uppercase tracking-widest ${item.outcome === 'WON' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {item.puzzle.target_word_hidden}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </main>
 
       <footer className="mt-12 text-slate-600 text-[10px] md:text-xs text-center border-t border-slate-800/50 pt-6 w-full max-w-md pb-8">
@@ -463,6 +562,13 @@ const App: React.FC = () => {
           background: #6366f1;
           cursor: pointer;
           box-shadow: 0 0 5px rgba(99, 102, 241, 0.5);
+        }
+        .no-scrollbar::-webkit-scrollbar {
+          display: none;
+        }
+        .no-scrollbar {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
         }
       `}</style>
     </div>
