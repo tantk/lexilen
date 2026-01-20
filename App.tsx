@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GameStatus, GameState, PuzzleData } from './types';
-import { generateGameRound } from './services/geminiService';
+import { generateGameRound, expandPool, SUBSEQUENT_BATCH_SIZE, POOL_LIMIT, ART_STYLES, THEMES } from './services/geminiService';
 import { soundEffects } from './services/soundService';
 import Button from './components/Button';
 import LetterKey, { LetterStatus } from './components/LetterKey';
@@ -49,6 +49,7 @@ const App: React.FC = () => {
 
   const [tickerMessage, setTickerMessage] = useState(FUN_LOADING_MESSAGES[0]);
   const isFetchingNext = useRef(false);
+  const hasExpandedPool = useRef(false);
 
   // Background pre-fetcher logic to maintain a queue
   const prefetchNextRound = useCallback(async () => {
@@ -68,6 +69,19 @@ const App: React.FC = () => {
     }
   }, [gameState.nextPuzzles.length]);
 
+  // Content Pool Expansion Monitor: Expands exactly once when 2 puzzles are ready in the queue
+  useEffect(() => {
+    const isPoolReadyForExpansion = 
+      gameState.nextPuzzles.length === 2 && 
+      !hasExpandedPool.current;
+
+    if (isPoolReadyForExpansion) {
+      hasExpandedPool.current = true;
+      console.debug("Expanding imagination engine pool...");
+      expandPool(SUBSEQUENT_BATCH_SIZE);
+    }
+  }, [gameState.nextPuzzles.length]);
+
   // Ticker Logic: Rotate messages every 3 seconds
   useEffect(() => {
     const interval = setInterval(() => {
@@ -83,17 +97,26 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
+  /**
+   * Starts a new round. 
+   * Priority: 
+   * 1. Pull from pre-fetched queue.
+   * 2. Fallback to manual load if queue is empty.
+   */
   const startNewGame = useCallback(async () => {
     if (gameState.nextPuzzles.length > 0) {
-      const [p, ...remaining] = gameState.nextPuzzles;
-      setGameState({
-        status: GameStatus.PLAYING,
-        puzzle: p,
-        nextPuzzles: remaining,
-        userGuess: new Array(p.word_length).fill(''),
-        attempts: 0,
-        maxAttempts: MAX_ATTEMPTS,
-        guessedLetters: new Set()
+      setGameState(prev => {
+        if (prev.nextPuzzles.length === 0) return prev;
+        const [next, ...remaining] = prev.nextPuzzles;
+        return {
+          ...prev,
+          status: GameStatus.PLAYING,
+          puzzle: next,
+          nextPuzzles: remaining,
+          userGuess: new Array(next.word_length).fill(''),
+          attempts: 0,
+          guessedLetters: new Set()
+        };
       });
       return;
     }
@@ -112,10 +135,8 @@ const App: React.FC = () => {
         ...prev,
         status: GameStatus.PLAYING,
         puzzle,
-        nextPuzzles: [],
         userGuess: new Array(puzzle.word_length).fill(''),
         attempts: 0,
-        maxAttempts: MAX_ATTEMPTS,
         guessedLetters: new Set()
       }));
     } catch (error) {
@@ -123,9 +144,9 @@ const App: React.FC = () => {
       setGameState(prev => ({ ...prev, status: GameStatus.IDLE }));
       alert("Failed to generate a new puzzle. Please try again.");
     }
-  }, [gameState.nextPuzzles]);
+  }, [gameState.nextPuzzles.length]);
 
-  // Check if we need to prefetch more pictures while the user is playing or in loading states
+  // Constant monitoring to refill the queue
   useEffect(() => {
     if (gameState.status !== GameStatus.IDLE && gameState.nextPuzzles.length < MAX_PREFETCH) {
       const timer = setTimeout(prefetchNextRound, 500);
@@ -177,10 +198,10 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center p-4 md:p-8 max-w-4xl mx-auto relative overflow-x-hidden">
+    <div className="min-h-screen flex flex-col items-center p-4 md:p-8 max-w-4xl mx-auto relative overflow-x-hidden text-slate-100">
       
       {/* Top Right Status Ticker */}
-      {(gameState.status === GameStatus.PLAYING || gameState.status === GameStatus.LOADING) && (
+      {(gameState.status === GameStatus.PLAYING || gameState.status === GameStatus.LOADING || gameState.status === GameStatus.WON || gameState.status === GameStatus.LOST) && (
         <div className="fixed top-4 right-4 z-50 pointer-events-none hidden md:block">
           <div className={`
             flex items-center gap-2 px-4 py-2 rounded-full border border-slate-700/50 backdrop-blur-md shadow-2xl
@@ -279,7 +300,7 @@ const App: React.FC = () => {
                 {gameState.nextPuzzles.length > 0 && gameState.status === GameStatus.PLAYING && (
                   <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[10px] animate-pulse">
                     <span className="w-1 h-1 bg-indigo-400 rounded-full"></span>
-                    Ready x{gameState.nextPuzzles.length}
+                    Next Puzzle Ready
                   </div>
                 )}
               </div>
@@ -325,7 +346,7 @@ const App: React.FC = () => {
                   </div>
                   <p className="text-slate-300">You revealed the word: <span className="text-emerald-400 font-bold tracking-widest">{gameState.puzzle.target_word_hidden}</span></p>
                   <Button onClick={startNewGame} className="mx-auto bg-emerald-600 hover:bg-emerald-500 px-12 py-4 text-lg">
-                    {gameState.nextPuzzles.length > 0 ? "Jump into Next Round" : "Next Challenge"}
+                    Next Challenge
                   </Button>
                 </div>
               )}
@@ -335,7 +356,7 @@ const App: React.FC = () => {
                   <h2 className="text-3xl font-black text-rose-400">OUT OF ATTEMPTS</h2>
                   <p className="text-slate-300">The hidden word was: <span className="text-white font-bold tracking-widest">{gameState.puzzle.target_word_hidden}</span></p>
                   <Button onClick={startNewGame} variant="danger" className="mx-auto px-12 py-4 text-lg">
-                    {gameState.nextPuzzles.length > 0 ? "Reset for Next Challenge" : "Try Another Game"}
+                    Reset for Next Challenge
                   </Button>
                 </div>
               )}

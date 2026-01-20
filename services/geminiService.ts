@@ -4,28 +4,105 @@ import { PuzzleData } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-const ART_STYLES = [
-  "cinematic photography", "3D digital render", "vibrant oil painting", 
-  "minimalist vector art", "neon cyberpunk aesthetic", "dreamy watercolor", 
-  "macro photography", "retro 8-bit pixel art", "surrealist collage", 
-  "hand-drawn charcoal sketch", "low-poly art style", "hyper-realistic close-up",
-  "Ukiyo-e woodblock print", "Bauhaus geometric poster", "stained glass masterpiece",
-  "vintage travel postcard", "claymation / stop-motion style", "double exposure art"
+// Configuration for dynamic pool expansion
+export const POOL_LIMIT = 50;
+export const INITIAL_BATCH_SIZE = 5; // Represented by the hardcoded items below
+export const SUBSEQUENT_BATCH_SIZE = 45;
+
+/**
+ * Initial content coded in for speed as requested.
+ * Using const and mutation ensures that all modules see the same updated array instance.
+ */
+export const ART_STYLES: string[] = [
+  "bioluminescent organic art",
+  "origami paper craft",
+  "vaporwave 80s glitch",
+  "isometric clay render",
+  "charcoal sketch on aged parchment"
 ];
 
-const THEMES = [
-  "underwater mysteries", "outer space exploration", "ancient civilizations",
-  "futuristic megacities", "microscopic worlds", "magical forests",
-  "steampunk inventions", "culinary masterpieces", "extreme sports",
-  "mythological creatures", "deserted island life", "abstract architecture"
+export const THEMES: string[] = [
+  "cluttered detective office",
+  "flying islands",
+  "forgotten library of giants",
+  "underwater jazz club",
+  "steampunk clockwork factory"
 ];
 
 /**
+ * Expands the ART_STYLES and THEMES arrays using a lightweight model.
+ * @param count The number of new items to attempt to generate for each category.
+ */
+export async function expandPool(count: number) {
+  // Stop if we've reached the target limit for both
+  if (ART_STYLES.length >= POOL_LIMIT && THEMES.length >= POOL_LIMIT) return;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-flash-lite-latest',
+      contents: `Generate ${count} unique and highly creative art styles and ${count} unique and creative themes for a visual word-guessing game. 
+      
+      Requirements:
+      - Art styles: Describe a specific visual medium, lighting technique, or complex aesthetic (e.g., 'cybernetic renaissance painting', 'stamped ink block print', 'hyper-realistic gelatinous sculpture', 'lo-fi anime watercolor'). 
+      - Themes: Describe a specific setting, subject matter, or narrative concept (e.g., 'nomadic turtle city', 'candy-coated apocalypse', 'intergalactic bazaar', 'solarpunk botanical garden').
+      
+      Be evocative and diverse. Avoid generic terms.
+      
+      Return a JSON object with:
+      - styles: string[]
+      - themes: string[]`,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            styles: { type: Type.ARRAY, items: { type: Type.STRING } },
+            themes: { type: Type.ARRAY, items: { type: Type.STRING } },
+          },
+          required: ["styles", "themes"]
+        }
+      }
+    });
+
+    const data = JSON.parse(response.text || '{}');
+    
+    // Use mutation to ensure the exported reference remains valid and updated
+    if (data.styles && Array.isArray(data.styles)) {
+      data.styles.forEach((s: string) => {
+        if (!ART_STYLES.includes(s) && ART_STYLES.length < POOL_LIMIT) {
+          ART_STYLES.push(s);
+        }
+      });
+    }
+    
+    if (data.themes && Array.isArray(data.themes)) {
+      data.themes.forEach((t: string) => {
+        if (!THEMES.includes(t) && THEMES.length < POOL_LIMIT) {
+          THEMES.push(t);
+        }
+      });
+    }
+    
+    console.debug(`Pool Expansion Success: Styles Count: ${ART_STYLES.length}, Themes Count: ${THEMES.length}`);
+  } catch (error) {
+    console.error("AI Pool Expansion failed:", error);
+  }
+}
+
+/**
  * Generates a full game round: concept -> image -> puzzle.
+ * Uses the dynamically expanded ART_STYLES and THEMES.
  */
 export async function generateGameRound(): Promise<PuzzleData> {
-  const randomStyle = ART_STYLES[Math.floor(Math.random() * ART_STYLES.length)];
-  const randomTheme = THEMES[Math.floor(Math.random() * THEMES.length)];
+  const sPool = ART_STYLES.length > 0 ? ART_STYLES : [
+    "cinematic photography", "vibrant oil painting", "digital 3D render"
+  ];
+  const tPool = THEMES.length > 0 ? THEMES : [
+    "outer space", "ancient ruins", "cyberpunk city"
+  ];
+  
+  const randomStyle = sPool[Math.floor(Math.random() * sPool.length)];
+  const randomTheme = tPool[Math.floor(Math.random() * tPool.length)];
 
   // Step 1: Conceptualize using a text-optimized model
   const conceptResponse = await ai.models.generateContent({
