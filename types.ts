@@ -22,10 +22,9 @@ export enum GameStatus {
 export interface GameState {
   status: GameStatus;
   puzzle: PuzzleData | null;
-  nextPuzzle: PuzzleData | null;
+  nextPuzzles: PuzzleData[];
   userGuess: string[];
   attempts: number;
   maxAttempts: number;
-  editingImage: boolean;
   guessedLetters: Set<string>;
 }

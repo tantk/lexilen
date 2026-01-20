@@ -1,59 +1,100 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GameStatus, GameState, PuzzleData } from './types';
-import { generateGameRound, editImage } from './services/geminiService';
+import { generateGameRound } from './services/geminiService';
 import { soundEffects } from './services/soundService';
 import Button from './components/Button';
 import LetterKey, { LetterStatus } from './components/LetterKey';
 
-const MAX_ATTEMPTS = 6;
+const MAX_ATTEMPTS = 4;
+const MAX_PREFETCH = 2; // Keep 2 pre-fetched puzzles at all times
+
+const FUN_LOADING_MESSAGES = [
+  "Polishing the AI lens...",
+  "Consulting the pixel oracle...",
+  "Stretching digital canvases...",
+  "Mixing artistic algorithms...",
+  "Brewing visual riddles...",
+  "Sharpening the neural brush...",
+  "Inking the next mystery...",
+  "Calibrating imagination...",
+  "Fetching a new perspective...",
+  "Weaving light and shadow...",
+  "Summoning visual wonders..."
+];
+
+const FUN_READY_MESSAGES = [
+  "Vision clear! ✨",
+  "Riddle ready! 🚀",
+  "Challenge locked & loaded! 🔥",
+  "A new world awaits! 🌟",
+  "Fresh pixels found! 💎",
+  "The AI is ready for you! 🤖",
+  "Next mystery prepared! 🔎",
+  "Your next challenge is set! 🎯",
+  "Pixels primed and ready! 🎨",
+  "Ready to test your wit! 🧠"
+];
 
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>({
     status: GameStatus.IDLE,
     puzzle: null,
-    nextPuzzle: null,
+    nextPuzzles: [],
     userGuess: [],
     attempts: 0,
     maxAttempts: MAX_ATTEMPTS,
-    editingImage: false,
     guessedLetters: new Set()
   });
 
-  const [editPrompt, setEditPrompt] = useState('');
-  const [isEditing, setIsEditing] = useState(false);
+  const [tickerMessage, setTickerMessage] = useState(FUN_LOADING_MESSAGES[0]);
   const isFetchingNext = useRef(false);
 
-  // Pre-fetch the next round in the background
+  // Background pre-fetcher logic to maintain a queue
   const prefetchNextRound = useCallback(async () => {
-    if (isFetchingNext.current || gameState.nextPuzzle) return;
+    if (isFetchingNext.current || gameState.nextPuzzles.length >= MAX_PREFETCH) return;
+    
     isFetchingNext.current = true;
     try {
       const nextPuzzle = await generateGameRound();
-      setGameState(prev => ({ ...prev, nextPuzzle }));
+      setGameState(prev => ({ 
+        ...prev, 
+        nextPuzzles: [...prev.nextPuzzles, nextPuzzle] 
+      }));
     } catch (error) {
       console.error("Failed to prefetch next round:", error);
     } finally {
       isFetchingNext.current = false;
     }
-  }, [gameState.nextPuzzle]);
+  }, [gameState.nextPuzzles.length]);
+
+  // Ticker Logic: Rotate messages every 3 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setGameState(current => {
+        if (current.nextPuzzles.length > 0) {
+          setTickerMessage(FUN_READY_MESSAGES[Math.floor(Math.random() * FUN_READY_MESSAGES.length)]);
+        } else {
+          setTickerMessage(FUN_LOADING_MESSAGES[Math.floor(Math.random() * FUN_LOADING_MESSAGES.length)]);
+        }
+        return current;
+      });
+    }, 3000);
+    return () => clearInterval(interval);
+  }, []);
 
   const startNewGame = useCallback(async () => {
-    // If we have a pre-fetched puzzle, use it immediately
-    if (gameState.nextPuzzle) {
-      const p = gameState.nextPuzzle;
+    if (gameState.nextPuzzles.length > 0) {
+      const [p, ...remaining] = gameState.nextPuzzles;
       setGameState({
         status: GameStatus.PLAYING,
         puzzle: p,
-        nextPuzzle: null,
+        nextPuzzles: remaining,
         userGuess: new Array(p.word_length).fill(''),
         attempts: 0,
         maxAttempts: MAX_ATTEMPTS,
-        editingImage: false,
         guessedLetters: new Set()
       });
-      // Start prefetching the one after this one
-      setTimeout(prefetchNextRound, 1000);
       return;
     }
 
@@ -71,20 +112,26 @@ const App: React.FC = () => {
         ...prev,
         status: GameStatus.PLAYING,
         puzzle,
+        nextPuzzles: [],
         userGuess: new Array(puzzle.word_length).fill(''),
         attempts: 0,
         maxAttempts: MAX_ATTEMPTS,
-        editingImage: false,
         guessedLetters: new Set()
       }));
-      // Start prefetching next round once first is loaded
-      setTimeout(prefetchNextRound, 2000);
     } catch (error) {
       console.error("Game load failed:", error);
       setGameState(prev => ({ ...prev, status: GameStatus.IDLE }));
       alert("Failed to generate a new puzzle. Please try again.");
     }
-  }, [gameState.nextPuzzle, prefetchNextRound]);
+  }, [gameState.nextPuzzles]);
+
+  // Check if we need to prefetch more pictures while the user is playing or in loading states
+  useEffect(() => {
+    if (gameState.status !== GameStatus.IDLE && gameState.nextPuzzles.length < MAX_PREFETCH) {
+      const timer = setTimeout(prefetchNextRound, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [gameState.nextPuzzles.length, gameState.status, prefetchNextRound]);
 
   const handleLetterClick = (letter: string) => {
     if (!gameState.puzzle || gameState.status !== GameStatus.PLAYING) return;
@@ -123,23 +170,6 @@ const App: React.FC = () => {
     }));
   };
 
-  const handleEditImage = async () => {
-    if (!editPrompt.trim() || !gameState.puzzle) return;
-    setIsEditing(true);
-    try {
-      const newUrl = await editImage(gameState.puzzle.image_url, editPrompt);
-      setGameState(prev => ({
-        ...prev,
-        puzzle: prev.puzzle ? { ...prev.puzzle, image_url: newUrl } : null
-      }));
-      setEditPrompt('');
-    } catch (err) {
-      alert("Could not edit image. Try a different prompt.");
-    } finally {
-      setIsEditing(false);
-    }
-  };
-
   const getLetterStatus = (letter: string): LetterStatus => {
     if (!gameState.guessedLetters.has(letter)) return 'default';
     if (gameState.puzzle?.target_word_hidden.includes(letter)) return 'correct';
@@ -147,21 +177,43 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center p-4 md:p-8 max-w-4xl mx-auto">
+    <div className="min-h-screen flex flex-col items-center p-4 md:p-8 max-w-4xl mx-auto relative overflow-x-hidden">
+      
+      {/* Top Right Status Ticker */}
+      {(gameState.status === GameStatus.PLAYING || gameState.status === GameStatus.LOADING) && (
+        <div className="fixed top-4 right-4 z-50 pointer-events-none hidden md:block">
+          <div className={`
+            flex items-center gap-2 px-4 py-2 rounded-full border border-slate-700/50 backdrop-blur-md shadow-2xl
+            transition-all duration-1000 transform
+            ${gameState.nextPuzzles.length > 0 ? 'bg-indigo-900/40' : 'bg-slate-900/40'}
+          `}>
+            <div className={`w-2 h-2 rounded-full ${gameState.nextPuzzles.length > 0 ? 'bg-indigo-400 animate-pulse' : 'bg-slate-600 animate-spin border border-t-transparent'}`}></div>
+            <span key={tickerMessage} className="text-[10px] font-bold uppercase tracking-widest text-slate-300 animate-fade-in min-w-[120px]">
+              {tickerMessage}
+            </span>
+            {gameState.nextPuzzles.length > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 rounded bg-indigo-500 text-white text-[8px] font-black">
+                {gameState.nextPuzzles.length}x Ready
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="w-full text-center mb-8">
         <h1 className="text-4xl md:text-5xl font-outfit font-extrabold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">
-          LEXILENS
+          INSIGHT
         </h1>
-        <p className="text-slate-400 mt-2 font-medium">Identify the hidden word in the image.</p>
+        <p className="text-slate-400 mt-2 font-medium">Decode the visual riddle.</p>
       </header>
 
       {/* Main Game Area */}
       <main className="w-full flex-grow space-y-8">
         {gameState.status === GameStatus.IDLE && (
           <div className="flex flex-col items-center justify-center h-96 space-y-6">
-            <div className="p-1 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600">
-              <img src="https://picsum.photos/seed/lexilens/400/400" className="w-64 h-64 object-cover rounded-xl shadow-2xl" alt="Game Preview" />
+            <div className="p-1 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-2xl shadow-indigo-500/20">
+              <img src="https://picsum.photos/seed/lexilens/400/400" className="w-64 h-64 object-cover rounded-xl" alt="Game Preview" />
             </div>
             <Button onClick={startNewGame} className="text-xl px-12 py-4">
               Begin Adventure
@@ -176,8 +228,8 @@ const App: React.FC = () => {
               <div className="absolute inset-0 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
             </div>
             <div className="text-center space-y-1">
-              <p className="text-indigo-300 font-semibold text-lg">AI Game Master is Painting...</p>
-              <p className="text-slate-500 text-sm">Conceptualizing a visual riddle</p>
+              <p className="text-indigo-300 font-semibold text-lg">{tickerMessage}</p>
+              <p className="text-slate-500 text-sm">Crafting a unique artistic challenge</p>
             </div>
           </div>
         )}
@@ -192,30 +244,9 @@ const App: React.FC = () => {
                 <img 
                   src={gameState.puzzle.image_url} 
                   alt="Puzzle hint" 
-                  className={`w-full h-full object-cover transition-opacity duration-500 ${isEditing ? 'opacity-40' : 'opacity-100'}`}
+                  className="w-full h-full object-cover transition-opacity duration-500 opacity-100"
                 />
-                {isEditing && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
-                    <div className="w-12 h-12 border-4 border-white border-t-transparent rounded-full animate-spin"></div>
-                  </div>
-                )}
               </div>
-
-              {gameState.status === GameStatus.PLAYING && (
-                <div className="mt-4 flex gap-2">
-                  <input 
-                    type="text" 
-                    value={editPrompt}
-                    onChange={(e) => setEditPrompt(e.target.value)}
-                    placeholder="Stuck? Edit the image! Try 'Add more detail'..."
-                    className="flex-grow bg-slate-800 border border-slate-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all placeholder:text-slate-600"
-                    onKeyDown={(e) => e.key === 'Enter' && handleEditImage()}
-                  />
-                  <Button onClick={handleEditImage} variant="secondary" className="px-4" isLoading={isEditing}>
-                    Refine
-                  </Button>
-                </div>
-              )}
             </div>
 
             {/* Puzzle Elements */}
@@ -245,11 +276,11 @@ const App: React.FC = () => {
                     <div key={i} className={`w-4 h-2 rounded-full transition-colors duration-300 ${i < gameState.attempts ? 'bg-rose-500 shadow-sm shadow-rose-900' : 'bg-slate-700'}`} />
                   ))}
                 </div>
-                {gameState.status === GameStatus.PLAYING && gameState.nextPuzzle && (
-                  <span className="text-[10px] text-indigo-500/50 flex items-center gap-1">
-                    <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></div>
-                    Next ready
-                  </span>
+                {gameState.nextPuzzles.length > 0 && gameState.status === GameStatus.PLAYING && (
+                  <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[10px] animate-pulse">
+                    <span className="w-1 h-1 bg-indigo-400 rounded-full"></span>
+                    Ready x{gameState.nextPuzzles.length}
+                  </div>
                 )}
               </div>
 
@@ -294,7 +325,7 @@ const App: React.FC = () => {
                   </div>
                   <p className="text-slate-300">You revealed the word: <span className="text-emerald-400 font-bold tracking-widest">{gameState.puzzle.target_word_hidden}</span></p>
                   <Button onClick={startNewGame} className="mx-auto bg-emerald-600 hover:bg-emerald-500 px-12 py-4 text-lg">
-                    {gameState.nextPuzzle ? "Instant Next Challenge" : "Next Challenge"}
+                    {gameState.nextPuzzles.length > 0 ? "Jump into Next Round" : "Next Challenge"}
                   </Button>
                 </div>
               )}
@@ -304,7 +335,7 @@ const App: React.FC = () => {
                   <h2 className="text-3xl font-black text-rose-400">OUT OF ATTEMPTS</h2>
                   <p className="text-slate-300">The hidden word was: <span className="text-white font-bold tracking-widest">{gameState.puzzle.target_word_hidden}</span></p>
                   <Button onClick={startNewGame} variant="danger" className="mx-auto px-12 py-4 text-lg">
-                    {gameState.nextPuzzle ? "Jump into New Game" : "New Game"}
+                    {gameState.nextPuzzles.length > 0 ? "Reset for Next Challenge" : "Try Another Game"}
                   </Button>
                 </div>
               )}
@@ -313,11 +344,10 @@ const App: React.FC = () => {
         )}
       </main>
 
-      <footer className="mt-12 text-slate-600 text-[10px] md:text-xs text-center border-t border-slate-800/50 pt-6 w-full max-w-md">
+      <footer className="mt-12 text-slate-600 text-[10px] md:text-xs text-center border-t border-slate-800/50 pt-6 w-full max-w-md pb-8">
         <p className="leading-relaxed">
           Instructions: Observe the image and click letters to fill the blanks. 
-          Incorrect guesses count as strikes. If the image is unclear, use the 
-          Refine tool to prompt the AI for a better visual clue!
+          Incorrect guesses count as strikes.
         </p>
       </footer>
 

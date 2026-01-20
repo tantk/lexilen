@@ -2,25 +2,49 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { PuzzleData } from "../types";
 
-// Always use the process.env.API_KEY directly as per guidelines
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+const ART_STYLES = [
+  "cinematic photography", "3D digital render", "vibrant oil painting", 
+  "minimalist vector art", "neon cyberpunk aesthetic", "dreamy watercolor", 
+  "macro photography", "retro 8-bit pixel art", "surrealist collage", 
+  "hand-drawn charcoal sketch", "low-poly art style", "hyper-realistic close-up",
+  "Ukiyo-e woodblock print", "Bauhaus geometric poster", "stained glass masterpiece",
+  "vintage travel postcard", "claymation / stop-motion style", "double exposure art"
+];
+
+const THEMES = [
+  "underwater mysteries", "outer space exploration", "ancient civilizations",
+  "futuristic megacities", "microscopic worlds", "magical forests",
+  "steampunk inventions", "culinary masterpieces", "extreme sports",
+  "mythological creatures", "deserted island life", "abstract architecture"
+];
 
 /**
  * Generates a full game round: concept -> image -> puzzle.
  */
 export async function generateGameRound(): Promise<PuzzleData> {
-  // Step 1 & 2: Conceptualize and get target details
+  const randomStyle = ART_STYLES[Math.floor(Math.random() * ART_STYLES.length)];
+  const randomTheme = THEMES[Math.floor(Math.random() * THEMES.length)];
+
+  // Step 1: Conceptualize using a text-optimized model
   const conceptResponse = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: `You are the AI Game Master for a visual word-guessing game. 
-    Think of a distinct visual concept (object, action, or setting). 
-    Choose a Target Word (noun/verb/adj, minimum 6 letters).
-    Create a concise caption with this word.
+    Your mission is to create a COMPLETELY UNIQUE AND DIVERSE visual riddle. 
+    
+    CRITICAL INSTRUCTIONS:
+    - Theme focus: ${randomTheme}.
+    - Style Context: The image should be in the style of: ${randomStyle}.
+    - Target Word: Must be a specific NOUN, VERB, or ADJECTIVE strictly LONGER than 5 letters (6+ letters).
+    - Concept: Think of something unusual, unexpected, or visually striking. Avoid common objects like "apples" or "cars" unless they are presented in a wild way.
+    - The caption must use the target word naturally.
+    
     Generate a JSON object with:
-    - concept_prompt: A descriptive prompt for an image generator (vivid, detailed).
-    - target_word: The chosen word.
-    - caption: The full sentence.
-    - thought: Why you chose this.`,
+    - concept_prompt: A highly detailed, vivid prompt for an image generator including the style ${randomStyle} and the theme ${randomTheme}. Focus on specific lighting, unusual camera angles, and textures.
+    - target_word: The chosen word (6+ letters).
+    - caption: The full sentence describing the image.
+    - thought: A very brief explanation of the subject.`,
     config: {
       responseMimeType: "application/json",
       responseSchema: {
@@ -36,7 +60,6 @@ export async function generateGameRound(): Promise<PuzzleData> {
     }
   });
 
-  // Access the text property directly and cast to the expected structure to resolve unknown types
   const concept = JSON.parse(conceptResponse.text || '{}') as {
     concept_prompt: string;
     target_word: string;
@@ -45,7 +68,7 @@ export async function generateGameRound(): Promise<PuzzleData> {
   };
   const targetWord = concept.target_word.toUpperCase();
 
-  // Step 2: Generate the image
+  // Step 2: Generate the image using the specialized image model
   const imageResponse = await ai.models.generateContent({
     model: 'gemini-2.5-flash-image',
     contents: {
@@ -57,7 +80,6 @@ export async function generateGameRound(): Promise<PuzzleData> {
   });
 
   let imageUrl = "";
-  // Access candidates and parts safely to find the image data
   const candidates = imageResponse.candidates;
   if (candidates && candidates.length > 0) {
     for (const part of candidates[0].content.parts) {
@@ -95,38 +117,4 @@ export async function generateGameRound(): Promise<PuzzleData> {
       letter_pool: letterPool
     }
   };
-}
-
-/**
- * Edits the existing image based on a user prompt.
- */
-export async function editImage(base64Image: string, editPrompt: string): Promise<string> {
-  const pureBase64 = base64Image.split(',')[1] || base64Image;
-  
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash-image',
-    contents: {
-      parts: [
-        {
-          inlineData: {
-            data: pureBase64,
-            mimeType: 'image/png'
-          }
-        },
-        { text: editPrompt }
-      ]
-    }
-  });
-
-  // Extract the image from candidates as per guidelines
-  const candidates = response.candidates;
-  if (candidates && candidates.length > 0) {
-    for (const part of candidates[0].content.parts) {
-      if (part.inlineData) {
-        return `data:image/png;base64,${part.inlineData.data}`;
-      }
-    }
-  }
-  
-  throw new Error("Failed to edit image");
 }

@@ -1,5 +1,5 @@
 {
-  "name": "LexiLens: The Visual Word Puzzle",
-  "description": "An AI-powered word guessing game where you identify hidden keywords from generated images and can dynamically edit the visuals using natural language prompts.",
+  "name": "InSight — Because the answer is right there in the image!",
+  "description": "An AI-powered word guessing game where you identify hidden keywords from generated images",
   "requestFramePermissions": []
 }
