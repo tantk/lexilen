@@ -58,6 +58,9 @@ const App: React.FC = () => {
   const [isRetrying, setIsRetrying] = useState(false);
   const [isPrefetching, setIsPrefetching] = useState(false);
   const [volume, setVolume] = useState(0.3);
+  const [selectedHistoryImage, setSelectedHistoryImage] = useState<string | null>(null);
+  const [isInfoExpanded, setIsInfoExpanded] = useState(false);
+  
   const isFetchingNext = useRef(false);
   const hasExpandedPool = useRef(false);
   const prefetchCooldown = useRef(0);
@@ -74,6 +77,13 @@ const App: React.FC = () => {
       musicService.stop();
     }
   }, [gameState.status, gameState.puzzle?.image_url, gameState.puzzle?.art_style, gameState.puzzle?.theme]);
+
+  // Click away to close expanded info
+  useEffect(() => {
+    const handleClick = () => setIsInfoExpanded(false);
+    window.addEventListener('click', handleClick);
+    return () => window.removeEventListener('click', handleClick);
+  }, []);
 
   // Handle volume change
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -247,10 +257,36 @@ const App: React.FC = () => {
     return 'incorrect';
   };
 
+  const closeZoom = () => setSelectedHistoryImage(null);
+
   return (
-    <div className="min-h-screen flex flex-col items-center p-4 md:p-8 max-w-4xl mx-auto relative overflow-x-hidden text-slate-100 pb-48">
+    <div className="min-h-screen flex flex-col items-center p-2 md:p-8 max-w-4xl mx-auto relative overflow-x-hidden text-slate-100 pb-20 md:pb-48">
       
-      {/* Top Left Score Tracker */}
+      {/* Zoom Overlay */}
+      {selectedHistoryImage && (
+        <div 
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-12 animate-fade-in"
+          onClick={closeZoom}
+        >
+          <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-xl"></div>
+          <div className="relative max-w-5xl w-full max-h-full flex items-center justify-center">
+            <img 
+              src={selectedHistoryImage} 
+              alt="Zoomed memory" 
+              className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl border border-slate-700/50 animate-pop"
+              onClick={(e) => e.stopPropagation()}
+            />
+            <button 
+              className="absolute top-0 right-0 -translate-y-full mb-4 p-2 bg-slate-800 hover:bg-slate-700 rounded-full transition-colors"
+              onClick={closeZoom}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Desktop Top Left Score Tracker */}
       <div className="fixed top-4 left-4 z-50 pointer-events-none hidden md:block">
         <div className="flex items-center gap-4 px-5 py-2.5 rounded-full bg-slate-900/40 backdrop-blur-md border border-slate-700/50 shadow-2xl">
           <div className="flex items-center gap-2">
@@ -323,18 +359,18 @@ const App: React.FC = () => {
         />
       </div>
 
-      <header className="w-full text-center mb-8">
-        <h1 className="text-4xl md:text-5xl font-outfit font-extrabold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">
+      <header className="w-full text-center mb-2 md:mb-8">
+        <h1 className="hidden md:block text-4xl md:text-5xl font-outfit font-extrabold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">
           INSIGHT
         </h1>
-        <p className="text-slate-400 mt-2 font-medium">Because the answer is right there in the image!</p>
+        <p className="hidden md:block text-slate-400 mt-2 font-medium">Because the answer is right there in the image!</p>
       </header>
 
-      <main className="w-full flex-grow space-y-8">
+      <main className="w-full flex-grow space-y-2 md:space-y-8">
         {gameState.status === GameStatus.IDLE && (
-          <div className="flex flex-col items-center justify-center h-96 space-y-6">
+          <div className="flex flex-col items-center justify-center min-h-[50vh] space-y-6">
             <div className="p-1 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-2xl shadow-indigo-500/20">
-              <img src="https://picsum.photos/seed/insight/400/400" className="w-64 h-64 object-cover rounded-xl" alt="Game Preview" />
+              <img src="https://picsum.photos/seed/insight/400/400" className="w-48 h-48 md:w-64 md:h-64 object-cover rounded-xl" alt="Game Preview" />
             </div>
             <Button onClick={startNewGame} className="text-xl px-12 py-4">
               Begin Adventure
@@ -346,7 +382,7 @@ const App: React.FC = () => {
         )}
 
         {gameState.status === GameStatus.LOADING && (
-          <div className="flex flex-col items-center justify-center h-96 space-y-4">
+          <div className="flex flex-col items-center justify-center min-h-[50vh] space-y-4">
             <div className="relative w-20 h-20">
               <div className="absolute inset-0 border-4 border-indigo-500/20 rounded-full"></div>
               <div className="absolute inset-0 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
@@ -359,11 +395,11 @@ const App: React.FC = () => {
         )}
 
         {(gameState.status === GameStatus.PLAYING || gameState.status === GameStatus.WON || gameState.status === GameStatus.LOST) && gameState.puzzle && (
-          <div className="animate-fade-in space-y-6">
+          <div className="animate-fade-in space-y-1 md:space-y-6">
             
-            <div className="relative group mx-auto max-w-lg">
+            <div className="relative group mx-auto w-full max-w-[90vw] md:max-w-lg aspect-square">
               <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-cyan-500 rounded-2xl blur opacity-25 group-hover:opacity-40 transition duration-1000"></div>
-              <div className="relative aspect-square rounded-2xl overflow-hidden bg-slate-900 border border-slate-700 shadow-2xl">
+              <div className="relative w-full h-full rounded-2xl overflow-hidden bg-slate-900 border border-slate-700 shadow-2xl">
                 <img 
                   src={gameState.puzzle.image_url} 
                   alt="Puzzle hint" 
@@ -372,24 +408,52 @@ const App: React.FC = () => {
               </div>
             </div>
 
-            <div className="text-center max-w-2xl mx-auto space-y-6">
-              <div className="flex flex-wrap justify-center gap-3 animate-fade-in">
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800/40 border border-indigo-500/20 shadow-lg">
-                  <span className="text-[10px] font-black uppercase tracking-tighter text-indigo-400">Domain</span>
-                  <span className="text-xs font-semibold text-slate-200">{gameState.puzzle.category}</span>
-                </div>
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800/40 border border-cyan-500/20 shadow-lg">
-                  <span className="text-[10px] font-black uppercase tracking-tighter text-cyan-400">Style</span>
-                  <span className="text-xs font-semibold text-slate-200">{gameState.puzzle.art_style}</span>
-                </div>
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800/40 border border-purple-500/20 shadow-lg">
-                  <span className="text-[10px] font-black uppercase tracking-tighter text-purple-400">Theme</span>
-                  <span className="text-xs font-semibold text-slate-200">{gameState.puzzle.theme}</span>
+            <div className="text-center max-w-2xl mx-auto space-y-1.5 md:space-y-6">
+              {/* Informational Badges with Toggle for Mobile */}
+              <div className="relative flex flex-col items-center" onClick={(e) => e.stopPropagation()}>
+                <button 
+                  onClick={() => setIsInfoExpanded(!isInfoExpanded)}
+                  className="md:hidden flex items-center gap-2 px-4 py-1.5 rounded-full bg-slate-800/80 border border-indigo-500/40 shadow-xl mb-1 mt-1 active:scale-95 transition-transform"
+                >
+                  <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400">
+                    {isInfoExpanded ? 'Hide Details' : 'Round Details & Score'}
+                  </span>
+                </button>
+                
+                <div className={`
+                  flex flex-col md:flex-row flex-wrap justify-center items-center gap-1.5 md:gap-3 animate-fade-in py-2
+                  ${isInfoExpanded ? 'flex' : 'hidden md:flex'}
+                `}>
+                  {/* Mobile Score Tracking (Only in Info Section) */}
+                  <div className="md:hidden flex items-center gap-3 px-3 py-1.5 rounded-xl bg-slate-900/60 border border-slate-700/50 mb-1">
+                    <div className="flex items-center gap-1.5">
+                       <span className="text-[9px] font-black uppercase text-emerald-400">Wins:</span>
+                       <span className="text-xs font-bold">{gameState.score.won}</span>
+                    </div>
+                    <div className="w-[1px] h-3 bg-slate-700"></div>
+                    <div className="flex items-center gap-1.5">
+                       <span className="text-[9px] font-black uppercase text-rose-400">Loss:</span>
+                       <span className="text-xs font-bold">{gameState.score.lost}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 md:gap-2 px-2.5 md:px-3 py-1 md:py-1.5 rounded-full bg-indigo-900/40 border border-indigo-500/40 shadow-lg">
+                    <span className="text-[8px] md:text-[10px] font-black uppercase tracking-tighter text-indigo-400">Domain</span>
+                    <span className="text-[10px] md:text-xs font-semibold text-slate-100">{gameState.puzzle.category}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 md:gap-2 px-2.5 md:px-3 py-1 md:py-1.5 rounded-full bg-cyan-900/40 border border-cyan-500/40 shadow-lg">
+                    <span className="text-[8px] md:text-[10px] font-black uppercase tracking-tighter text-cyan-400">Style</span>
+                    <span className="text-[10px] md:text-xs font-semibold text-slate-100">{gameState.puzzle.art_style}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 md:gap-2 px-2.5 md:px-3 py-1 md:py-1.5 rounded-full bg-purple-900/40 border border-purple-500/40 shadow-lg">
+                    <span className="text-[8px] md:text-[10px] font-black uppercase tracking-tighter text-purple-400">Theme</span>
+                    <span className="text-[10px] md:text-xs font-semibold text-slate-100">{gameState.puzzle.theme}</span>
+                  </div>
                 </div>
               </div>
 
-              <div className="p-4 rounded-xl bg-slate-800/30 border border-slate-700/50">
-                <p className="text-xl md:text-2xl font-medium leading-relaxed italic text-slate-200">
+              <div className="p-2 md:p-4 rounded-xl bg-slate-800/30 border border-slate-700/50 shadow-inner mx-2 md:mx-0">
+                <p className="text-sm md:text-2xl font-medium leading-relaxed italic text-slate-200">
                   {gameState.status === GameStatus.WON || gameState.status === GameStatus.LOST 
                     ? gameState.puzzle.original_caption_hidden
                     : gameState.puzzle.puzzle_data_for_user.redacted_caption.split('___').map((part, i, arr) => (
@@ -402,26 +466,26 @@ const App: React.FC = () => {
                 </p>
               </div>
               
-              <div className="flex justify-center items-center gap-6 text-sm font-semibold tracking-wider uppercase text-slate-500">
+              <div className="flex justify-center items-center gap-4 md:gap-6 text-[10px] md:text-sm font-semibold tracking-wider uppercase text-slate-500">
                 <div className="flex items-center gap-2">
                   <span className={gameState.attempts >= gameState.maxAttempts - 1 ? 'text-rose-400' : 'text-slate-400'}>
                     Strikes: {gameState.attempts} / {gameState.maxAttempts}
                   </span>
                 </div>
-                <div className="flex gap-1.5">
+                <div className="flex gap-1 md:gap-1.5">
                   {[...Array(gameState.maxAttempts)].map((_, i) => (
-                    <div key={i} className={`w-4 h-2 rounded-full transition-colors duration-300 ${i < gameState.attempts ? 'bg-rose-500 shadow-sm shadow-rose-900' : 'bg-slate-700'}`} />
+                    <div key={i} className={`w-3 md:w-4 h-1.5 md:h-2 rounded-full transition-colors duration-300 ${i < gameState.attempts ? 'bg-rose-500 shadow-sm shadow-rose-900' : 'bg-slate-700'}`} />
                   ))}
                 </div>
               </div>
 
-              <div className="flex flex-wrap gap-2 justify-center my-6">
+              <div className="flex flex-wrap gap-1 md:gap-2 justify-center my-1.5 md:my-6 px-4">
                 {gameState.userGuess.map((char, i) => (
                   <div 
                     key={i} 
                     className={`
-                      w-10 h-12 md:w-12 md:h-14 flex items-center justify-center 
-                      text-2xl font-black border-b-4 rounded-t-lg
+                      w-7 h-9 md:w-12 md:h-14 flex items-center justify-center 
+                      text-lg md:text-2xl font-black border-b-2 md:border-b-4 rounded-t-lg
                       ${char 
                         ? 'border-indigo-400 bg-indigo-900/30 text-white animate-pop' 
                         : 'border-slate-600 bg-slate-900/50 text-transparent'}
@@ -434,8 +498,8 @@ const App: React.FC = () => {
               </div>
 
               {gameState.status === GameStatus.PLAYING && (
-                <div className="space-y-6 pt-2">
-                  <div className="flex flex-wrap justify-center gap-2 max-w-md mx-auto">
+                <div className="space-y-1 md:space-y-6 pt-0.5 md:pt-2 px-1 md:px-0">
+                  <div className="flex flex-wrap justify-center gap-1 md:gap-2 max-w-md mx-auto">
                     {gameState.puzzle.puzzle_data_for_user.letter_pool.map((letter, i) => (
                       <LetterKey 
                         key={i} 
@@ -450,22 +514,22 @@ const App: React.FC = () => {
               )}
 
               {gameState.status === GameStatus.WON && (
-                <div className="bg-emerald-500/10 border border-emerald-500/30 p-8 rounded-2xl space-y-4 animate-bounce-slow">
+                <div className="bg-emerald-500/10 border border-emerald-500/30 p-4 md:p-8 rounded-2xl space-y-4 animate-bounce-slow shadow-lg shadow-emerald-500/5 mx-2 md:mx-0">
                   <div className="flex justify-center gap-2">
-                    {[...'GENIUS'].map((l, i) => <span key={i} className="text-4xl font-black text-emerald-400 animate-pop" style={{animationDelay: `${i*50}ms`}}>{l}</span>)}
+                    {[...'GENIUS'].map((l, i) => <span key={i} className="text-2xl md:text-4xl font-black text-emerald-400 animate-pop" style={{animationDelay: `${i*50}ms`}}>{l}</span>)}
                   </div>
-                  <p className="text-slate-300">You revealed the word: <span className="text-emerald-400 font-bold tracking-widest">{gameState.puzzle.target_word_hidden}</span></p>
-                  <Button onClick={startNewGame} className="mx-auto bg-emerald-600 hover:bg-emerald-500 px-12 py-4 text-lg">
+                  <p className="text-slate-300 text-xs md:text-base">You revealed the word: <span className="text-emerald-400 font-bold tracking-widest uppercase">{gameState.puzzle.target_word_hidden}</span></p>
+                  <Button onClick={startNewGame} className="mx-auto bg-emerald-600 hover:bg-emerald-500 px-8 md:px-12 py-3 md:py-4 text-base md:text-lg">
                     Next Challenge
                   </Button>
                 </div>
               )}
 
               {gameState.status === GameStatus.LOST && (
-                <div className="bg-rose-500/10 border border-rose-500/30 p-8 rounded-2xl space-y-4">
-                  <h2 className="text-3xl font-black text-rose-400">OUT OF ATTEMPTS</h2>
-                  <p className="text-slate-300">The hidden word was: <span className="text-white font-bold tracking-widest">{gameState.puzzle.target_word_hidden}</span></p>
-                  <Button onClick={startNewGame} variant="danger" className="mx-auto px-12 py-4 text-lg">
+                <div className="bg-rose-500/10 border border-rose-500/30 p-4 md:p-8 rounded-2xl space-y-4 shadow-lg shadow-rose-500/5 mx-2 md:mx-0">
+                  <h2 className="text-xl md:text-3xl font-black text-rose-400">OUT OF ATTEMPTS</h2>
+                  <p className="text-slate-300 text-xs md:text-base">The hidden word was: <span className="text-white font-bold tracking-widest uppercase">{gameState.puzzle.target_word_hidden}</span></p>
+                  <Button onClick={startNewGame} variant="danger" className="mx-auto px-8 md:px-12 py-3 md:py-4 text-base md:text-lg">
                     Reset for Next Challenge
                   </Button>
                 </div>
@@ -476,58 +540,63 @@ const App: React.FC = () => {
 
         {/* The Chronicle - History Gallery */}
         {gameState.history.length > 0 && (
-          <div className="pt-12 animate-fade-in">
-            <div className="flex items-center gap-4 mb-6">
+          <div className="pt-8 md:pt-12 animate-fade-in relative px-2 md:px-0">
+            <div className="flex items-center gap-4 mb-4 md:mb-6">
               <div className="h-px flex-grow bg-slate-800"></div>
               <div className="flex flex-col items-center gap-1">
-                <h3 className="text-xs font-black uppercase tracking-[0.3em] text-slate-500">The Chronicle</h3>
-                <span className="text-[8px] font-bold text-slate-600 uppercase tracking-widest">Last {gameState.history.length} Memories</span>
+                <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-slate-500">The Chronicle</h3>
+                <span className="text-[8px] font-bold text-slate-600 uppercase tracking-widest">Memories ({gameState.history.length})</span>
               </div>
               <div className="h-px flex-grow bg-slate-800"></div>
             </div>
             
-            <div className="flex gap-4 overflow-x-auto pb-6 px-4 -mx-4 no-scrollbar scroll-smooth">
-              {gameState.history.map((item, i) => (
-                <div 
-                  key={item.timestamp} 
-                  className={`
-                    flex-shrink-0 w-32 md:w-40 group cursor-default transition-transform hover:-translate-y-2
-                    animate-pop
-                  `}
-                  style={{ animationDelay: `${i * 100}ms` }}
-                >
-                  <div className={`
-                    relative aspect-square rounded-xl overflow-hidden border-2 mb-2
-                    ${item.outcome === 'WON' ? 'border-emerald-500/30 shadow-lg shadow-emerald-500/10' : 'border-rose-500/30 shadow-lg shadow-rose-500/10'}
-                  `}>
-                    <img src={item.puzzle.image_url} className="w-full h-full object-cover" alt="Past Riddle" />
+            <div className="relative group/chronicle">
+              <div className="flex gap-4 overflow-x-auto pb-8 px-4 -mx-4 no-scrollbar scroll-smooth snap-x snap-mandatory">
+                {gameState.history.map((item, i) => (
+                  <div 
+                    key={item.timestamp} 
+                    className="flex-shrink-0 w-24 md:w-40 snap-start group/item cursor-pointer transition-transform hover:-translate-y-2 animate-pop"
+                    style={{ animationDelay: `${i * 100}ms` }}
+                    onClick={(e) => { e.stopPropagation(); setSelectedHistoryImage(item.puzzle.image_url); }}
+                  >
                     <div className={`
-                      absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center
-                      ${item.outcome === 'WON' ? 'bg-emerald-500' : 'bg-rose-500'}
+                      relative aspect-square rounded-xl overflow-hidden border-2 mb-2
+                      ${item.outcome === 'WON' ? 'border-emerald-500/30 shadow-lg shadow-emerald-500/10' : 'border-rose-500/30 shadow-lg shadow-rose-500/10'}
+                      group-hover/item:border-white/40 transition-colors duration-300
                     `}>
-                      {item.outcome === 'WON' ? (
-                        <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"/></svg>
-                      ) : (
-                        <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"/></svg>
-                      )}
+                      <img src={item.puzzle.image_url} className="w-full h-full object-cover" alt="Past Riddle" />
+                      <div className="absolute inset-0 bg-slate-950/20 opacity-0 group-hover/item:opacity-100 transition-opacity flex items-center justify-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-white drop-shadow-lg md:w-6 md:h-6"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
+                      </div>
+                      <div className={`
+                        absolute top-1 right-1 w-4 h-4 md:w-5 md:h-5 rounded-full flex items-center justify-center shadow-lg
+                        ${item.outcome === 'WON' ? 'bg-emerald-500' : 'bg-rose-500'}
+                      `}>
+                        {item.outcome === 'WON' ? (
+                          <svg className="w-2.5 h-2.5 md:w-3 md:h-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"/></svg>
+                        ) : (
+                          <svg className="w-2.5 h-2.5 md:w-3 md:h-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"/></svg>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-center">
+                      <p className={`text-[8px] md:text-[10px] font-black uppercase tracking-widest ${item.outcome === 'WON' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {item.puzzle.target_word_hidden}
+                      </p>
                     </div>
                   </div>
-                  <div className="text-center">
-                    <p className={`text-[10px] font-black uppercase tracking-widest ${item.outcome === 'WON' ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {item.puzzle.target_word_hidden}
-                    </p>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
         )}
       </main>
 
-      <footer className="mt-12 text-slate-600 text-[10px] md:text-xs text-center border-t border-slate-800/50 pt-6 w-full max-w-md pb-8">
+      <footer className="mt-4 md:mt-12 text-slate-600 text-[8px] md:text-xs text-center border-t border-slate-800/50 pt-6 w-full max-w-md pb-8 px-4">
         <p className="leading-relaxed">
-          Instructions: Observe the image and click letters to fill the blanks. 
+          Observe the image and click letters to fill the blanks. 
           Incorrect guesses count as strikes. Subjects range from Science to Cinema.
+          Click chronicle images to enlarge them.
         </p>
       </footer>
 
@@ -537,7 +606,7 @@ const App: React.FC = () => {
           to { opacity: 1; transform: translateY(0); }
         }
         .animate-fade-in {
-          animation: fade-in 0.6s ease-out forwards;
+          animation: fade-in 0.4s ease-out forwards;
         }
         @keyframes bounce-slow {
           0%, 100% { transform: translateY(0); }
@@ -548,7 +617,7 @@ const App: React.FC = () => {
         }
         @keyframes pop {
           0% { transform: scale(0.8); opacity: 0; }
-          70% { transform: scale(1.1); }
+          70% { transform: scale(1.05); }
           100% { transform: scale(1); opacity: 1; }
         }
         .animate-pop {

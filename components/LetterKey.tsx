@@ -10,6 +10,7 @@ interface LetterKeyProps {
   isDisabled: boolean;
 }
 
+// Fix: Added LetterKeyProps to React.FC generic to resolve property 'letter', 'onClick', 'status', and 'isDisabled' not existing on type '{}' errors.
 const LetterKey: React.FC<LetterKeyProps> = ({ letter, onClick, status, isDisabled }) => {
   const getStatusStyles = () => {
     switch (status) {
@@ -27,8 +28,8 @@ const LetterKey: React.FC<LetterKeyProps> = ({ letter, onClick, status, isDisabl
       onClick={() => onClick(letter)}
       disabled={isDisabled || status !== 'default'}
       className={`
-        w-12 h-14 md:w-16 md:h-16 flex items-center justify-center 
-        text-xl md:text-2xl font-bold rounded-lg border-2 
+        w-10 h-12 md:w-16 md:h-16 flex items-center justify-center 
+        text-lg md:text-2xl font-bold rounded-lg border-2 
         transition-all duration-200 transform active:scale-90
         ${getStatusStyles()}
         ${isDisabled && status === 'default' ? 'cursor-not-allowed opacity-30' : ''}

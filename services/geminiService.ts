@@ -7,7 +7,7 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 // Configuration for dynamic pool expansion
 export const POOL_LIMIT = 60;
 export const INITIAL_BATCH_SIZE = 8; 
-export const SUBSEQUENT_BATCH_SIZE = 15; // Optimized for faster processing
+export const SUBSEQUENT_BATCH_SIZE = 15; // Optimized for performance and variety
 
 /**
  * Utility to retry API calls with exponential backoff.
@@ -96,7 +96,7 @@ export async function expandPool(count: number) {
       Generate ${count} new art styles, themes, and intellectual domains.
       
       RULES FOR DOMAINS:
-      1. Every domain must have a short 'rule' for an image generator (e.g. "Domain: Chemistry, Rule: Feature molecular structures and glowing reagents").
+      1. Every domain must have a short 'rule' for an image generator.
       2. Cover diverse topics: Sports, Gastronomy, Mythology, Architecture, Outer Space, Psychology, etc.
       3. Maintain the balance: Styles should include both "Character-Driven" and "Atmospheric" vibes.
       
@@ -162,20 +162,23 @@ export async function generateGameRound(): Promise<PuzzleData> {
     SPECIAL DOMAIN RULE: ${domainRule}
 
     INSTRUCTIONS: 
+    - Provide exactly ONE target word that is a common noun (6-10 letters).
+    - The target word must be present in the image.
+    - DO NOT use the word "MYSTERY" as the target word.
+    
     ${isHumanCentric ? 
-      `1. CHARACTER FOCUS: Feature a person (or sentient creature) performing an action with intense emotion or purpose.
-       2. TARGET WORD: A noun (6-10 letters) that is crucial to their action or role in the scene (e.g. 'HELMET', 'COMPASS', 'SCALPEL').` :
-      `1. ATMOSPHERIC FOCUS: Focus on an OBJECT, LANDMARK, or INSTRUMENT. No humans. Use composition to make it iconic.
+      `1. CHARACTER FOCUS: Feature a person or creature with emotion.
+       2. TARGET WORD: A noun (6-10 letters) that is central to their action (e.g. 'LANTERN', 'BACKPACK', 'HELMET').` :
+      `1. ATMOSPHERIC FOCUS: Focus on an iconic object. No humans.
        2. TARGET WORD: A noun (6-10 letters) that is the focal object itself (e.g. 'TELESCOPE', 'MONOLITH', 'TAPESTRY').`
     }
-    3. VISUAL STORY: Describe the scene vividly for image generation.
     
     Return JSON:
     {
-      "concept_prompt": "Detailed image prompt for DALL-E/Midjourney style generation",
-      "target_word": "THE_WORD",
-      "caption": "A sentence describing the scene with the target word clearly mentioned.",
-      "thought": "Intellectual logic connecting the domain to the word."
+      "concept_prompt": "Prompt for image generation",
+      "target_word": "THE_ACTUAL_WORD",
+      "caption": "A sentence describing the scene with the word included",
+      "thought": "Intellectual logic for this domain"
     }`,
     config: {
       temperature: 1.0,
@@ -194,8 +197,11 @@ export async function generateGameRound(): Promise<PuzzleData> {
   }));
 
   const concept = JSON.parse(conceptResponse.text || '{}');
-  const rawWord = (concept.target_word || "MYSTERY").trim().toUpperCase();
-  const targetWord = rawWord.length < 3 ? "MYSTERY" : rawWord;
+  
+  // Robust word extraction: remove quotes, spaces, and non-alpha characters
+  const rawWord = (concept.target_word || "").replace(/[^a-zA-Z]/g, "").trim().toUpperCase();
+  const targetWord = rawWord.length >= 3 && rawWord !== "MYSTERY" ? rawWord : "PUZZLE"; // Better fallback than mystery
+  
   const caption = (concept.caption || `A scene from the ${randomDomain} domain.`).trim();
 
   const imageResponse = await withRetry(() => ai.models.generateContent({
