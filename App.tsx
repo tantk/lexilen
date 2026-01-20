@@ -3,11 +3,12 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GameStatus, GameState, PuzzleData } from './types';
 import { generateGameRound, expandPool, SUBSEQUENT_BATCH_SIZE, POOL_LIMIT, ART_STYLES, THEMES } from './services/geminiService';
 import { soundEffects } from './services/soundService';
+import { musicService } from './services/musicalService';
 import Button from './components/Button';
 import LetterKey, { LetterStatus } from './components/LetterKey';
 
 const MAX_ATTEMPTS = 4;
-const MAX_PREFETCH = 2; // Keep 2 pre-fetched puzzles at all times
+const MAX_PREFETCH = 2; 
 
 const FUN_LOADING_MESSAGES = [
   "Polishing the AI lens...",
@@ -44,32 +45,65 @@ const App: React.FC = () => {
     userGuess: [],
     attempts: 0,
     maxAttempts: MAX_ATTEMPTS,
-    guessedLetters: new Set()
+    guessedLetters: new Set(),
+    score: {
+      won: 0,
+      lost: 0
+    }
   });
 
   const [tickerMessage, setTickerMessage] = useState(FUN_LOADING_MESSAGES[0]);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [volume, setVolume] = useState(0.3);
   const isFetchingNext = useRef(false);
   const hasExpandedPool = useRef(false);
+  const prefetchCooldown = useRef(0);
 
-  // Background pre-fetcher logic to maintain a queue
+  // Music Management
+  useEffect(() => {
+    if (gameState.status === GameStatus.PLAYING && gameState.puzzle?.image_url) {
+      // Pass Style and Theme to influence procedural music
+      musicService.start(
+        gameState.puzzle.image_url, 
+        gameState.puzzle.art_style, 
+        gameState.puzzle.theme
+      ).catch(console.error);
+    } else if (gameState.status === GameStatus.WON || gameState.status === GameStatus.LOST || gameState.status === GameStatus.IDLE) {
+      musicService.stop();
+    }
+  }, [gameState.status, gameState.puzzle?.image_url, gameState.puzzle?.art_style, gameState.puzzle?.theme]);
+
+  // Handle volume change
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = parseFloat(e.target.value);
+    setVolume(val);
+    musicService.setVolume(val);
+  };
+
+  // Background pre-fetcher logic
   const prefetchNextRound = useCallback(async () => {
-    if (isFetchingNext.current || gameState.nextPuzzles.length >= MAX_PREFETCH) return;
+    if (isFetchingNext.current || gameState.nextPuzzles.length >= MAX_PREFETCH || Date.now() < prefetchCooldown.current) return;
     
     isFetchingNext.current = true;
     try {
+      setIsRetrying(false);
       const nextPuzzle = await generateGameRound();
-      setGameState(prev => ({ 
-        ...prev, 
-        nextPuzzles: [...prev.nextPuzzles, nextPuzzle] 
-      }));
-    } catch (error) {
+      if (nextPuzzle.target_word_hidden.length >= 3) {
+        setGameState(prev => ({ 
+          ...prev, 
+          nextPuzzles: [...prev.nextPuzzles, nextPuzzle] 
+        }));
+      }
+    } catch (error: any) {
       console.error("Failed to prefetch next round:", error);
+      prefetchCooldown.current = Date.now() + 5000;
+      setIsRetrying(true);
     } finally {
       isFetchingNext.current = false;
     }
   }, [gameState.nextPuzzles.length]);
 
-  // Content Pool Expansion Monitor: Expands exactly once when 2 puzzles are ready in the queue
+  // Content Pool Expansion Monitor
   useEffect(() => {
     const isPoolReadyForExpansion = 
       gameState.nextPuzzles.length === 2 && 
@@ -77,32 +111,24 @@ const App: React.FC = () => {
 
     if (isPoolReadyForExpansion) {
       hasExpandedPool.current = true;
-      console.debug("Expanding imagination engine pool...");
       expandPool(SUBSEQUENT_BATCH_SIZE);
     }
   }, [gameState.nextPuzzles.length]);
 
-  // Ticker Logic: Rotate messages every 3 seconds
+  // Ticker Logic
   useEffect(() => {
     const interval = setInterval(() => {
-      setGameState(current => {
-        if (current.nextPuzzles.length > 0) {
-          setTickerMessage(FUN_READY_MESSAGES[Math.floor(Math.random() * FUN_READY_MESSAGES.length)]);
-        } else {
-          setTickerMessage(FUN_LOADING_MESSAGES[Math.floor(Math.random() * FUN_LOADING_MESSAGES.length)]);
-        }
-        return current;
-      });
+      if (isRetrying) {
+        setTickerMessage("Adjusting frequency... 📡");
+      } else if (gameState.nextPuzzles.length > 0) {
+        setTickerMessage(FUN_READY_MESSAGES[Math.floor(Math.random() * FUN_READY_MESSAGES.length)]);
+      } else {
+        setTickerMessage(FUN_LOADING_MESSAGES[Math.floor(Math.random() * FUN_LOADING_MESSAGES.length)]);
+      }
     }, 3000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isRetrying, gameState.nextPuzzles.length]);
 
-  /**
-   * Starts a new round. 
-   * Priority: 
-   * 1. Pull from pre-fetched queue.
-   * 2. Fallback to manual load if queue is empty.
-   */
   const startNewGame = useCallback(async () => {
     if (gameState.nextPuzzles.length > 0) {
       setGameState(prev => {
@@ -139,17 +165,17 @@ const App: React.FC = () => {
         attempts: 0,
         guessedLetters: new Set()
       }));
-    } catch (error) {
+    } catch (error: any) {
       console.error("Game load failed:", error);
       setGameState(prev => ({ ...prev, status: GameStatus.IDLE }));
-      alert("Failed to generate a new puzzle. Please try again.");
+      alert("AI signal interrupted. Please try again.");
     }
   }, [gameState.nextPuzzles.length]);
 
   // Constant monitoring to refill the queue
   useEffect(() => {
     if (gameState.status !== GameStatus.IDLE && gameState.nextPuzzles.length < MAX_PREFETCH) {
-      const timer = setTimeout(prefetchNextRound, 500);
+      const timer = setTimeout(prefetchNextRound, 1000);
       return () => clearTimeout(timer);
     }
   }, [gameState.nextPuzzles.length, gameState.status, prefetchNextRound]);
@@ -159,8 +185,9 @@ const App: React.FC = () => {
     if (gameState.guessedLetters.has(letter)) return;
 
     const targetWord = gameState.puzzle.target_word_hidden.toUpperCase();
+    if (!targetWord) return;
+
     const isCorrect = targetWord.includes(letter);
-    
     const nextGuessed = new Set(gameState.guessedLetters);
     nextGuessed.add(letter);
 
@@ -187,7 +214,11 @@ const App: React.FC = () => {
       guessedLetters: nextGuessed,
       userGuess: newUserGuess,
       attempts: nextAttempts,
-      status: isWon ? GameStatus.WON : isLost ? GameStatus.LOST : GameStatus.PLAYING
+      status: isWon ? GameStatus.WON : isLost ? GameStatus.LOST : GameStatus.PLAYING,
+      score: {
+        won: isWon ? prev.score.won + 1 : prev.score.won,
+        lost: isLost ? prev.score.lost + 1 : prev.score.lost,
+      }
     }));
   };
 
@@ -198,18 +229,35 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center p-4 md:p-8 max-w-4xl mx-auto relative overflow-x-hidden text-slate-100">
+    <div className="min-h-screen flex flex-col items-center p-4 md:p-8 max-w-4xl mx-auto relative overflow-x-hidden text-slate-100 pb-24">
       
+      {/* Top Left Score Tracker */}
+      <div className="fixed top-4 left-4 z-50 pointer-events-none hidden md:block">
+        <div className="flex items-center gap-4 px-5 py-2.5 rounded-full bg-slate-900/40 backdrop-blur-md border border-slate-700/50 shadow-2xl">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-emerald-400"></div>
+            <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400/90">Solved</span>
+            <span className="text-sm font-bold text-white tabular-nums">{gameState.score.won}</span>
+          </div>
+          <div className="w-[1px] h-3 bg-slate-700"></div>
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-rose-500"></div>
+            <span className="text-[10px] font-black uppercase tracking-widest text-rose-400/90">Failed</span>
+            <span className="text-sm font-bold text-white tabular-nums">{gameState.score.lost}</span>
+          </div>
+        </div>
+      </div>
+
       {/* Top Right Status Ticker */}
-      {(gameState.status === GameStatus.PLAYING || gameState.status === GameStatus.LOADING || gameState.status === GameStatus.WON || gameState.status === GameStatus.LOST) && (
+      {(gameState.status !== GameStatus.IDLE) && (
         <div className="fixed top-4 right-4 z-50 pointer-events-none hidden md:block">
           <div className={`
             flex items-center gap-2 px-4 py-2 rounded-full border border-slate-700/50 backdrop-blur-md shadow-2xl
             transition-all duration-1000 transform
-            ${gameState.nextPuzzles.length > 0 ? 'bg-indigo-900/40' : 'bg-slate-900/40'}
+            ${isRetrying ? 'bg-rose-900/40' : gameState.nextPuzzles.length > 0 ? 'bg-indigo-900/40' : 'bg-slate-900/40'}
           `}>
-            <div className={`w-2 h-2 rounded-full ${gameState.nextPuzzles.length > 0 ? 'bg-indigo-400 animate-pulse' : 'bg-slate-600 animate-spin border border-t-transparent'}`}></div>
-            <span key={tickerMessage} className="text-[10px] font-bold uppercase tracking-widest text-slate-300 animate-fade-in min-w-[120px]">
+            <div className={`w-2 h-2 rounded-full ${isRetrying ? 'bg-rose-400 animate-pulse' : gameState.nextPuzzles.length > 0 ? 'bg-indigo-400 animate-pulse' : 'bg-slate-600 animate-spin border border-t-transparent'}`}></div>
+            <span key={tickerMessage} className="text-[10px] font-bold uppercase tracking-widest text-slate-300 animate-fade-in min-w-[140px]">
               {tickerMessage}
             </span>
             {gameState.nextPuzzles.length > 0 && (
@@ -221,12 +269,29 @@ const App: React.FC = () => {
         </div>
       )}
 
+      {/* Volume Slider - Bottom Right */}
+      <div className="fixed bottom-6 right-6 z-[60] flex items-center gap-3 bg-slate-900/60 backdrop-blur-md p-2 px-4 rounded-full border border-slate-700/50 shadow-2xl transition-all hover:bg-slate-900/80 group">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-indigo-400 opacity-60 group-hover:opacity-100 transition-opacity">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+          <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+        </svg>
+        <input 
+          type="range" 
+          min="0" 
+          max="0.8" 
+          step="0.01" 
+          value={volume} 
+          onChange={handleVolumeChange}
+          className="w-24 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500 hover:accent-indigo-400 transition-all"
+        />
+      </div>
+
       {/* Header */}
       <header className="w-full text-center mb-8">
         <h1 className="text-4xl md:text-5xl font-outfit font-extrabold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">
           INSIGHT
         </h1>
-        <p className="text-slate-400 mt-2 font-medium">Decode the visual riddle.</p>
+        <p className="text-slate-400 mt-2 font-medium">Because the answer is right there in the image!</p>
       </header>
 
       {/* Main Game Area */}
@@ -234,11 +299,14 @@ const App: React.FC = () => {
         {gameState.status === GameStatus.IDLE && (
           <div className="flex flex-col items-center justify-center h-96 space-y-6">
             <div className="p-1 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-2xl shadow-indigo-500/20">
-              <img src="https://picsum.photos/seed/lexilens/400/400" className="w-64 h-64 object-cover rounded-xl" alt="Game Preview" />
+              <img src="https://picsum.photos/seed/insight/400/400" className="w-64 h-64 object-cover rounded-xl" alt="Game Preview" />
             </div>
             <Button onClick={startNewGame} className="text-xl px-12 py-4">
               Begin Adventure
             </Button>
+            <p className="text-slate-500 text-xs text-center max-w-xs leading-relaxed">
+              Every image generates its own unique procedural soundtrack. Enable your sound for the full experience.
+            </p>
           </div>
         )}
 
@@ -258,7 +326,6 @@ const App: React.FC = () => {
         {(gameState.status === GameStatus.PLAYING || gameState.status === GameStatus.WON || gameState.status === GameStatus.LOST) && gameState.puzzle && (
           <div className="animate-fade-in space-y-6">
             
-            {/* Image Section */}
             <div className="relative group mx-auto max-w-lg">
               <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-cyan-500 rounded-2xl blur opacity-25 group-hover:opacity-40 transition duration-1000"></div>
               <div className="relative aspect-square rounded-2xl overflow-hidden bg-slate-900 border border-slate-700 shadow-2xl">
@@ -270,7 +337,6 @@ const App: React.FC = () => {
               </div>
             </div>
 
-            {/* Puzzle Elements */}
             <div className="text-center max-w-2xl mx-auto space-y-4">
               <div className="p-4 rounded-xl bg-slate-800/30 border border-slate-700/50">
                 <p className="text-xl md:text-2xl font-medium leading-relaxed italic text-slate-200">
@@ -297,12 +363,6 @@ const App: React.FC = () => {
                     <div key={i} className={`w-4 h-2 rounded-full transition-colors duration-300 ${i < gameState.attempts ? 'bg-rose-500 shadow-sm shadow-rose-900' : 'bg-slate-700'}`} />
                   ))}
                 </div>
-                {gameState.nextPuzzles.length > 0 && gameState.status === GameStatus.PLAYING && (
-                  <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[10px] animate-pulse">
-                    <span className="w-1 h-1 bg-indigo-400 rounded-full"></span>
-                    Next Puzzle Ready
-                  </div>
-                )}
               </div>
 
               <div className="flex flex-wrap gap-2 justify-center my-6">
@@ -394,6 +454,15 @@ const App: React.FC = () => {
         }
         .animate-pop {
           animation: pop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+        input[type=range]::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          height: 12px;
+          width: 12px;
+          border-radius: 50%;
+          background: #6366f1;
+          cursor: pointer;
+          box-shadow: 0 0 5px rgba(99, 102, 241, 0.5);
         }
       `}</style>
     </div>

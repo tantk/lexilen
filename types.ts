@@ -5,6 +5,8 @@ export interface PuzzleData {
   original_caption_hidden: string;
   target_word_hidden: string;
   word_length: number;
+  art_style: string;
+  theme: string;
   puzzle_data_for_user: {
     redacted_caption: string;
     letter_pool: string[];
@@ -27,4 +29,8 @@ export interface GameState {
   attempts: number;
   maxAttempts: number;
   guessedLetters: Set<string>;
+  score: {
+    won: number;
+    lost: number;
+  };
 }

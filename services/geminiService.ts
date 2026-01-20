@@ -6,19 +6,48 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // Configuration for dynamic pool expansion
 export const POOL_LIMIT = 50;
-export const INITIAL_BATCH_SIZE = 5; // Represented by the hardcoded items below
+export const INITIAL_BATCH_SIZE = 5; 
 export const SUBSEQUENT_BATCH_SIZE = 45;
 
 /**
- * Initial content coded in for speed as requested.
- * Using const and mutation ensures that all modules see the same updated array instance.
+ * Utility to retry API calls with exponential backoff.
  */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxRetries = 3,
+  initialDelay = 2000
+): Promise<T> {
+  let lastError: any;
+  for (let i = 0; i <= maxRetries; i++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      lastError = error;
+      const status = error?.status || (typeof error?.message === 'string' && error.message.includes('429') ? 'RESOURCE_EXHAUSTED' : null);
+      const isRetryable = status === 'RESOURCE_EXHAUSTED' || status === 'UNAVAILABLE' || error?.status === 503 || error?.status === 429;
+
+      if (i < maxRetries && isRetryable) {
+        const delay = initialDelay * Math.pow(2, i) + Math.random() * 1000;
+        console.warn(`Retry ${i + 1}/${maxRetries} after ${Math.round(delay)}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw lastError;
+}
+
 export const ART_STYLES: string[] = [
   "bioluminescent organic art",
   "origami paper craft",
   "vaporwave 80s glitch",
   "isometric clay render",
-  "charcoal sketch on aged parchment"
+  "charcoal sketch on aged parchment",
+  "stained glass mosaic",
+  "neon-noir synthwave palette",
+  "cybernetic botanical illustration",
+  "minimalist geometric flat design"
 ];
 
 export const THEMES: string[] = [
@@ -26,31 +55,19 @@ export const THEMES: string[] = [
   "flying islands",
   "forgotten library of giants",
   "underwater jazz club",
-  "steampunk clockwork factory"
+  "steampunk clockwork factory",
+  "intergalactic botanical garden",
+  "post-apocalyptic candy shop",
+  "mythological olympus peak",
+  "cyberpunk street market"
 ];
 
-/**
- * Expands the ART_STYLES and THEMES arrays using a lightweight model.
- * @param count The number of new items to attempt to generate for each category.
- */
 export async function expandPool(count: number) {
-  // Stop if we've reached the target limit for both
   if (ART_STYLES.length >= POOL_LIMIT && THEMES.length >= POOL_LIMIT) return;
-
   try {
-    const response = await ai.models.generateContent({
+    const response = await withRetry(() => ai.models.generateContent({
       model: 'gemini-flash-lite-latest',
-      contents: `Generate ${count} unique and highly creative art styles and ${count} unique and creative themes for a visual word-guessing game. 
-      
-      Requirements:
-      - Art styles: Describe a specific visual medium, lighting technique, or complex aesthetic (e.g., 'cybernetic renaissance painting', 'stamped ink block print', 'hyper-realistic gelatinous sculpture', 'lo-fi anime watercolor'). 
-      - Themes: Describe a specific setting, subject matter, or narrative concept (e.g., 'nomadic turtle city', 'candy-coated apocalypse', 'intergalactic bazaar', 'solarpunk botanical garden').
-      
-      Be evocative and diverse. Avoid generic terms.
-      
-      Return a JSON object with:
-      - styles: string[]
-      - themes: string[]`,
+      contents: `Generate ${count} highly creative and unique art styles and themes for a visual riddle game. Avoid clichés like 'detective' or 'space'. Return JSON {styles: string[], themes: string[]}`,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -62,67 +79,38 @@ export async function expandPool(count: number) {
           required: ["styles", "themes"]
         }
       }
-    });
-
-    const data = JSON.parse(response.text || '{}');
-    
-    // Use mutation to ensure the exported reference remains valid and updated
-    if (data.styles && Array.isArray(data.styles)) {
-      data.styles.forEach((s: string) => {
-        if (!ART_STYLES.includes(s) && ART_STYLES.length < POOL_LIMIT) {
-          ART_STYLES.push(s);
-        }
-      });
-    }
-    
-    if (data.themes && Array.isArray(data.themes)) {
-      data.themes.forEach((t: string) => {
-        if (!THEMES.includes(t) && THEMES.length < POOL_LIMIT) {
-          THEMES.push(t);
-        }
-      });
-    }
-    
-    console.debug(`Pool Expansion Success: Styles Count: ${ART_STYLES.length}, Themes Count: ${THEMES.length}`);
-  } catch (error) {
-    console.error("AI Pool Expansion failed:", error);
-  }
+    }));
+    const data = JSON.parse(response.text || '{}') as { styles?: string[]; themes?: string[] };
+    if (data.styles) data.styles.forEach(s => { if (!ART_STYLES.includes(s) && ART_STYLES.length < POOL_LIMIT) ART_STYLES.push(s); });
+    if (data.themes) data.themes.forEach(t => { if (!THEMES.includes(t) && THEMES.length < POOL_LIMIT) THEMES.push(t); });
+  } catch (e) { console.error("Pool expansion failed", e); }
 }
 
-/**
- * Generates a full game round: concept -> image -> puzzle.
- * Uses the dynamically expanded ART_STYLES and THEMES.
- */
 export async function generateGameRound(): Promise<PuzzleData> {
-  const sPool = ART_STYLES.length > 0 ? ART_STYLES : [
-    "cinematic photography", "vibrant oil painting", "digital 3D render"
-  ];
-  const tPool = THEMES.length > 0 ? THEMES : [
-    "outer space", "ancient ruins", "cyberpunk city"
-  ];
-  
-  const randomStyle = sPool[Math.floor(Math.random() * sPool.length)];
-  const randomTheme = tPool[Math.floor(Math.random() * tPool.length)];
+  const randomStyle = ART_STYLES[Math.floor(Math.random() * ART_STYLES.length)];
+  const randomTheme = THEMES[Math.floor(Math.random() * THEMES.length)];
 
-  // Step 1: Conceptualize using a text-optimized model
-  const conceptResponse = await ai.models.generateContent({
+  // Step 1: Conceptualize
+  const conceptResponse = await withRetry(() => ai.models.generateContent({
     model: 'gemini-3-flash-preview',
-    contents: `You are the AI Game Master for a visual word-guessing game. 
-    Your mission is to create a COMPLETELY UNIQUE AND DIVERSE visual riddle. 
+    contents: `You are a visual riddle master. Your goal is to create a unique and challenging visual puzzle.
+    Theme: ${randomTheme}
+    Art Style: ${randomStyle}
     
-    CRITICAL INSTRUCTIONS:
-    - Theme focus: ${randomTheme}.
-    - Style Context: The image should be in the style of: ${randomStyle}.
-    - Target Word: Must be a specific NOUN, VERB, or ADJECTIVE strictly LONGER than 5 letters (6+ letters).
-    - Concept: Think of something unusual, unexpected, or visually striking. Avoid common objects like "apples" or "cars" unless they are presented in a wild way.
-    - The caption must use the target word naturally.
+    CRITICAL INSTRUCTION: 
+    1. Select a target NOUN related to the theme that is exactly 6 to 10 letters long.
+    2. AVOID STEREOTYPES: Do NOT pick the most obvious object (e.g., if the theme is 'detective', do NOT use 'typewriter' or 'magnifier'). Instead, pick something specific, evocative, and unexpected (e.g., 'FEDORA', 'ASHTRAY', 'REVOLVER', 'CARPET').
+    3. Write a 1-sentence caption describing a scene in the style of ${randomStyle} that includes that noun.
     
-    Generate a JSON object with:
-    - concept_prompt: A highly detailed, vivid prompt for an image generator including the style ${randomStyle} and the theme ${randomTheme}. Focus on specific lighting, unusual camera angles, and textures.
-    - target_word: The chosen word (6+ letters).
-    - caption: The full sentence describing the image.
-    - thought: A very brief explanation of the subject.`,
+    Return JSON:
+    {
+      "concept_prompt": "Highly detailed image generation prompt",
+      "target_word": "THE_WORD",
+      "caption": "The full descriptive sentence",
+      "thought": "Brief logic"
+    }`,
     config: {
+      temperature: 1.0, // Increase temperature for more creative word choice
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.OBJECT,
@@ -135,31 +123,23 @@ export async function generateGameRound(): Promise<PuzzleData> {
         required: ["concept_prompt", "target_word", "caption", "thought"]
       }
     }
-  });
+  }));
 
-  const concept = JSON.parse(conceptResponse.text || '{}') as {
-    concept_prompt: string;
-    target_word: string;
-    caption: string;
-    thought: string;
-  };
-  const targetWord = concept.target_word.toUpperCase();
+  const concept = JSON.parse(conceptResponse.text || '{}');
+  const rawWord = (concept.target_word || "MYSTERY").trim().toUpperCase();
+  const targetWord = rawWord.length < 3 ? "MYSTERY" : rawWord;
+  const caption = (concept.caption || `A mysterious scene featuring a ${targetWord.toLowerCase()}.`).trim();
 
-  // Step 2: Generate the image using the specialized image model
-  const imageResponse = await ai.models.generateContent({
+  // Step 2: Generate Image
+  const imageResponse = await withRetry(() => ai.models.generateContent({
     model: 'gemini-2.5-flash-image',
-    contents: {
-      parts: [{ text: concept.concept_prompt }]
-    },
-    config: {
-      imageConfig: { aspectRatio: "1:1" }
-    }
-  });
+    contents: { parts: [{ text: concept.concept_prompt || `A ${randomStyle} painting of ${randomTheme}` }] },
+    config: { imageConfig: { aspectRatio: "1:1" } }
+  }));
 
-  let imageUrl = "";
-  const candidates = imageResponse.candidates;
-  if (candidates && candidates.length > 0) {
-    for (const part of candidates[0].content.parts) {
+  let imageUrl = "https://picsum.photos/seed/fallback/800/800";
+  if (imageResponse.candidates?.[0]) {
+    for (const part of imageResponse.candidates[0].content.parts) {
       if (part.inlineData) {
         imageUrl = `data:image/png;base64,${part.inlineData.data}`;
         break;
@@ -167,28 +147,23 @@ export async function generateGameRound(): Promise<PuzzleData> {
     }
   }
 
-  // Step 3: Create Puzzle Elements
-  const uniqueLetters = Array.from(new Set(targetWord.split('')));
+  // Step 3: Create Puzzle
+  const uniqueLetters = Array.from(new Set(targetWord.split(''))) as string[];
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
   const poolSet = new Set<string>(uniqueLetters);
-  
-  while (poolSet.size < 12) {
-    const randomChar = alphabet[Math.floor(Math.random() * alphabet.length)];
-    poolSet.add(randomChar);
-  }
-
+  while (poolSet.size < 12) poolSet.add(alphabet[Math.floor(Math.random() * alphabet.length)]);
   const letterPool = Array.from(poolSet).sort(() => Math.random() - 0.5);
-  const redactedCaption = concept.caption.replace(
-    new RegExp(concept.target_word, 'gi'), 
-    "_".repeat(concept.target_word.length)
-  );
+
+  const redactedCaption = caption.replace(new RegExp(targetWord, 'gi'), "___");
 
   return {
-    internal_thought_process: concept.thought,
+    internal_thought_process: concept.thought || "Riddle generated.",
     image_url: imageUrl,
-    original_caption_hidden: concept.caption,
+    original_caption_hidden: caption,
     target_word_hidden: targetWord,
     word_length: targetWord.length,
+    art_style: randomStyle,
+    theme: randomTheme,
     puzzle_data_for_user: {
       redacted_caption: redactedCaption,
       letter_pool: letterPool
